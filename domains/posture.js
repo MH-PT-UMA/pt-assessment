@@ -69,6 +69,21 @@
     };
   }
 
+  // 点数をつける項目（BBS・BESTest）
+  function pt(id, label, max, group, bilateral) {
+    return { id: id, label: label, type: 'scale', min: 0, max: max, better: 'high', group: group, bilateral: !!bilateral };
+  }
+  // BESTest の6セクション（小計の単位）と、クライアント向けの言い換え
+  var B1 = 'I 生体力学的制約', B2 = 'II 安定性限界・垂直性', B3 = 'III 予測的姿勢調節',
+    B4 = 'IV 反応的姿勢制御', B5 = 'V 感覚機能', B6 = 'VI 歩行安定性';
+  var BEST_PLAIN = {};
+  BEST_PLAIN[B1] = { plain: '筋力や柔軟性など、からだの土台', ex: ['calf_raise', 'squat'] };
+  BEST_PLAIN[B2] = { plain: '体を傾けたり手を伸ばしたりできる範囲', ex: ['side_stretch', 'single_leg_stand'] };
+  BEST_PLAIN[B3] = { plain: '動き出すときの姿勢の準備', ex: ['calf_raise', 'single_leg_stand'] };
+  BEST_PLAIN[B4] = { plain: 'バランスを崩したときの立て直し', ex: ['single_leg_stand', 'squat'] };
+  BEST_PLAIN[B5] = { plain: '目を閉じたときや、やわらかい床の上での安定', ex: ['single_leg_stand', 'short_foot'] };
+  BEST_PLAIN[B6] = { plain: '歩いているときのバランス', ex: ['squat', 'calf_raise'] };
+
   var PAIN_PLAIN = {
     '頸部': '首', '肩': '肩', '肩甲帯': '肩甲骨まわり', '上肢': '腕', '胸背部': '背中', '腰部': '腰',
     '殿部': 'お尻', '股関節': '股関節', '大腿': '太もも', '膝': '膝', '下腿': 'すね・ふくらはぎ', '足部': '足首・足'
@@ -287,6 +302,91 @@
             client: sided(function (v) { return v < 5; },
               function (s) { return s + '目を閉じた片脚立ちが短めです。足裏や体幹でバランスをとる力を高めていきましょう。'; },
               { pre: { R: '右脚での', L: '左脚での', B: '左右とも' } }) }
+        ]
+      },
+      // ------------------------------------------------------------
+      // score を付けたセクションは合計点（group ごとの小計）を自動で出す
+      {
+        id: 'bbs', label: 'バランス：BBS',
+        score: {
+          label: 'BBS', plain: 'バランス検査（BBS）の合計', hint: '各項目 0〜4点・56点満点',
+          client: function (sc) {
+            if (!sc.complete) return null;
+            var t = 'バランス検査（BBS）は56点中' + sc.sum + '点でした。';
+            if (sc.sum >= 46) return { text: t + 'バランス能力は良好です。', ex: [] };
+            if (sc.sum >= 41) return { text: t + 'おおむね良好ですが、やや不安定になる場面があります。', ex: ['single_leg_stand', 'calf_raise'] };
+            if (sc.sum >= 21) return { text: t + 'ふらつきやすい場面があります。転倒に気をつけながら、バランス練習を続けていきましょう。', ex: ['single_leg_stand', 'squat', 'calf_raise'] };
+            return { text: t + 'バランスを崩しやすい状態です。立ち座りや移動のときは、支えを使って安全に行いましょう。', ex: ['squat', 'calf_raise'] };
+          }
+        },
+        items: [
+          pt('b01', '1 立ち上がり（椅子座位→立位）', 4),
+          pt('b02', '2 立位保持', 4),
+          pt('b03', '3 座位保持（背もたれなし）', 4),
+          pt('b04', '4 着座（立位→座位）', 4),
+          pt('b05', '5 移乗', 4),
+          pt('b06', '6 閉眼立位', 4),
+          pt('b07', '7 閉脚立位', 4),
+          pt('b08', '8 上肢前方リーチ', 4),
+          pt('b09', '9 床から物を拾う', 4),
+          pt('b10', '10 後方を振り向く（左右）', 4),
+          pt('b11', '11 360°回転', 4),
+          pt('b12', '12 段差への足載せ（交互）', 4),
+          pt('b13', '13 タンデム立位', 4),
+          pt('b14', '14 片脚立位', 4)
+        ]
+      },
+      // ------------------------------------------------------------
+      {
+        id: 'bestest', label: 'バランス：BESTest',
+        score: {
+          label: 'BESTest', percent: true, plain: 'バランス検査（BESTest）の合計',
+          hint: '各項目 0〜3点・108点満点（36項目）',
+          client: function (sc) {
+            if (!sc.complete) return null;
+            var t = 'バランス検査（BESTest）は108点中' + sc.sum + '点（' + Math.round(sc.sum / sc.max * 100) + '%）でした。';
+            var worst = null;
+            sc.groups.forEach(function (g) {
+              var r = g.sum / g.max;
+              if (r < 0.85 && (!worst || r < worst.sum / worst.max)) worst = g; // 85%未満の領域だけ「苦手」と伝える
+            });
+            if (!worst) return { text: t + '全体に良好です。', ex: [] };
+            var info = BEST_PLAIN[worst.label] || {};
+            return { text: t + (info.plain ? 'なかでも「' + info.plain + '」が苦手な傾向です。' : ''), ex: info.ex || ['single_leg_stand'] };
+          }
+        },
+        items: [
+          pt('e01', '1 支持基底面', 3, B1),
+          pt('e02', '2 重心アライメント', 3, B1),
+          pt('e03', '3 足関節の筋力と可動域', 3, B1),
+          pt('e04', '4 股関節・体幹側方の筋力', 3, B1),
+          pt('e05', '5 床への座り込みと立ち上がり', 3, B1),
+          pt('e06a', '6 座位側方リーチ', 3, B2, true),
+          pt('e06b', '6 座位垂直性', 3, B2, true),
+          pt('e07', '7 前方ファンクショナルリーチ', 3, B2),
+          pt('e08', '8 側方ファンクショナルリーチ', 3, B2, true),
+          pt('e09', '9 座位からの立ち上がり', 3, B3),
+          pt('e10', '10 つま先立ち', 3, B3),
+          pt('e11', '11 片脚立位', 3, B3, true),
+          pt('e12', '12 交互の段差タッチ', 3, B3),
+          pt('e13', '13 立位での上肢挙上', 3, B3),
+          pt('e14', '14 その場での反応（前方）', 3, B4),
+          pt('e15', '15 その場での反応（後方）', 3, B4),
+          pt('e16', '16 代償的ステップ（前方）', 3, B4),
+          pt('e17', '17 代償的ステップ（後方）', 3, B4),
+          pt('e18', '18 代償的ステップ（側方）', 3, B4, true),
+          pt('e19a', '19A 開眼・固い床', 3, B5),
+          pt('e19b', '19B 閉眼・固い床', 3, B5),
+          pt('e19c', '19C 開眼・フォーム', 3, B5),
+          pt('e19d', '19D 閉眼・フォーム', 3, B5),
+          pt('e20', '20 傾斜台・閉眼', 3, B5),
+          pt('e21', '21 平地歩行', 3, B6),
+          pt('e22', '22 歩行速度の変化', 3, B6),
+          pt('e23', '23 頭部回旋を伴う歩行', 3, B6),
+          pt('e24', '24 歩行中のピボットターン', 3, B6),
+          pt('e25', '25 障害物またぎ', 3, B6),
+          pt('e26', '26 TUG', 3, B6),
+          pt('e27', '27 二重課題TUG', 3, B6)
         ]
       }
     ]

@@ -196,6 +196,11 @@ textarea { resize: none; display: block; }
 .picker-group { font-size: 13px; font-weight: 700; color: var(--sub); line-height: 38px; }
 .opt-rows > div:not([hidden]) ~ div .item, .opt-rows .item { border-top: 1px dashed var(--line); padding-top: 10px; }
 .note { margin-top: 10px; font-size: 15px; }
+.score-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.score-line strong { color: var(--accent); }
+.grp { margin: 16px -12px 10px; padding: 6px 12px; background: var(--flat-bg); font-size: 13.5px; }
+.grp + .item, .score-line + .item, .score-line + .hint + .item { border-top: 0; padding-top: 0; }
+.cmp-row.total .cmp-label { font-weight: 700; }
 
 /* ---------- 結果・比較 */
 .tally { display: flex; gap: 8px; margin-bottom: 10px; }

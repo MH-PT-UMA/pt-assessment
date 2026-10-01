@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.1.0';
   const PTA = window.PTA;
   const DOMAINS = PTA.domains;
   const EX = PTA.exercises;
@@ -212,6 +212,49 @@
     return { st: '' };
   }
   const ST_LABEL = { better: '改善', worse: '低下', same: '変化なし', changed: '変化' };
+  const signed = d => (d > 0 ? '+' : d < 0 ? '−' : '±') + Math.abs(d);
+
+  // 合計点を出すセクション（section.score あり）の集計。小計は item.group ごと
+  function scoreOf(x, d, s) {
+    if (!s.score || !x) return null;
+    const groups = [];
+    const tot = { sum: 0, n: 0, N: 0, max: 0 };
+    for (const i of s.items) {
+      if (i.type !== 'scale') continue;
+      let g = groups.find(k => k.label === (i.group || ''));
+      if (!g) groups.push(g = { label: i.group || '', sum: 0, n: 0, N: 0, max: 0 });
+      for (const f of fieldsOf(d, s, i)) {
+        const v = x.values[f.key];
+        for (const t of [g, tot]) {
+          t.N++; t.max += i.max;
+          if (hasValue(v)) { t.n++; t.sum += v; }
+        }
+      }
+    }
+    if (!tot.n) return null;
+    return { ...tot, complete: tot.n === tot.N, groups };
+  }
+  // 全項目そろっていれば「45/56」、途中なら「30点（10/14項目）」
+  const scoreText = sc => (sc.n === sc.N ? `${sc.sum}/${sc.max}` : `${sc.sum}点（${sc.n}/${sc.N}項目）`);
+  const scoreGroup = (sc, label) => (sc ? sc.groups.find(g => g.label === label && g.n) : null) || null;
+
+  function recordScore(d, s, a, prev) {
+    const sc = scoreOf(a, d, s);
+    if (!sc) return '';
+    const ps = scoreOf(prev, d, s);
+    let t = `${s.score.label} ${scoreText(sc)}`;
+    if (ps && ps.complete && sc.complete) t += `(${signed(sc.sum - ps.sum)})`;
+    if (sc.complete && s.score.percent) t += `（${round1(sc.sum / sc.max * 100)}%）`;
+    const named = sc.groups.filter(g => g.label && g.n);
+    if (named.length) t += '\n' + named.map(g => `${g.label} ${scoreText(g)}`).join('、');
+    const lost = [];
+    for (const i of s.items) for (const f of fieldsOf(d, s, i)) {
+      const v = a.values[f.key];
+      if (i.type === 'scale' && hasValue(v) && v < i.max) lost.push(`${i.label}${f.side ? f.side : ''} ${v}`);
+    }
+    if (lost.length) t += `\n減点：${lost.join('、')}`;
+    return t;
+  }
 
   // ---------------------------------------------------------------- 出力①：記録文
   function getter(x, d, s) {
@@ -272,7 +315,10 @@
     for (const d of DOMAINS) {
       for (const s of d.sections) {
         let parts;
-        if (s.record) {
+        if (s.score) {
+          const t = recordScore(d, s, a, p);
+          parts = t ? [t] : [];
+        } else if (s.record) {
           const diff = id => { const i = s.items.find(x => x.id === id); return i ? diffText(i, itemKey(d, s, i), a, p) : ''; };
           const t = s.record(getter(a, d, s), diff);
           parts = t ? [t] : [];
@@ -302,6 +348,11 @@
     for (const d of DOMAINS) {
       for (const s of d.sections) {
         const g = getter(a, d, s);
+        if (s.score) {
+          const sc = scoreOf(a, d, s);
+          if (sc && s.score.client) add(s.score.client(sc));
+          continue;
+        }
         if (s.client) { add(s.client(g)); continue; }
         for (const i of s.items) {
           const v = g(i.id);
@@ -329,7 +380,16 @@
   function collectChanges(a, prev) {
     const out = [];
     if (!prev) return out;
+    const tails = { better: '良くなっています', worse: '前回よりやや低下しています' };
+    // 合計点のあるセクションは、項目ごとではなく合計の変化だけを伝える
+    for (const d of DOMAINS) for (const s of d.sections) {
+      const ps = scoreOf(prev, d, s), cs = scoreOf(a, d, s);
+      if (ps && cs && ps.complete && cs.complete && ps.sum !== cs.sum) {
+        out.push(`・${s.score.plain || s.score.label}：${ps.sum}点 → ${cs.sum}点（${cs.sum > ps.sum ? tails.better : tails.worse}）`);
+      }
+    }
     for (const d of DOMAINS) for (const s of d.sections) for (const i of s.items) {
+      if (s.score) continue;
       const scored = i.type === 'choice' && (i.options || []).some(o => o.score != null);
       if (!i.better && !scored) continue;
       for (const f of fieldsOf(d, s, i)) {
@@ -388,6 +448,15 @@
             f ? f.d.label : '', f ? f.s.label : '', f ? f.i.label : '', f && f.side ? SIDE_JA[f.side] : '',
             f ? fmtValue({ ...f.i, unit: '' }, v) : String(v), f ? (f.i.unit || '') : '', k, JSON.stringify(v)]);
         }
+        // 合計・小計（全項目そろっているときだけ。読み込み時は無視される集計行）
+        for (const d of DOMAINS) for (const s of d.sections) {
+          const sc = scoreOf(a, d, s);
+          if (!sc || !sc.complete) continue;
+          const line = (label, x, key) => rows.push([...base, a.id, a.date, iso(a.createdAt),
+            d.label, s.label, label, '', x.sum, '点', `${d.id}.${s.id}.${key}`, x.sum]);
+          line('合計', sc, '_total');
+          sc.groups.filter(g => g.label).forEach((g, n) => line(`小計 ${g.label}`, g, `_sub${n + 1}`));
+        }
       }
     }
     return rows.map(r => r.map(csvCell).join(',')).join('\r\n');
@@ -441,7 +510,7 @@
         });
       }
       const aid = get(r, 'assessment_id').trim(), key = get(r, 'key').trim();
-      if (!aid || !key) continue;
+      if (!aid || !key || /\._(total|sub\d+)$/.test(key)) continue;
       if (!assessments.has(aid)) {
         const date = normDate(get(r, '評価日'));
         assessments.set(aid, {
@@ -674,6 +743,7 @@
     // 入力のたびに自動保存（空の評価は保存しない）
     let timer = null, dirty = false;
     const refreshers = [];
+    const painters = []; // 値をまとめて書き換えたときにチップの表示を合わせる
     const save = async () => {
       clearTimeout(timer);
       if (!dirty) return;
@@ -717,6 +787,7 @@
         b.setAttribute('aria-pressed', on);
       });
       paint();
+      painters.push(paint);
       return h('div', { class: 'chips ' + (cls || '') }, btns);
     }
 
@@ -842,7 +913,30 @@
         }
         body.append(h('p', { class: 'hint' }, '測る項目をタップして追加'), picker, rows);
       } else {
-        body.append(...s.items.map(i => renderItem(d, s, i)));
+        if (s.score) {
+          const total = h('strong');
+          refreshers.push(() => {
+            const sc = scoreOf(a, d, s);
+            total.textContent = sc ? `合計 ${sc.sum}/${sc.max}点（${sc.n}/${sc.N}項目）` : '合計 —';
+          });
+          const fill = () => {
+            for (const i of s.items) {
+              if (i.type !== 'scale') continue;
+              for (const f of fieldsOf(d, s, i)) if (!hasValue(a.values[f.key])) a.values[f.key] = i.max;
+            }
+            changed();
+            refreshers.forEach(f => f());
+            painters.forEach(f => f());
+          };
+          body.append(h('div', { class: 'score-line' }, total,
+            h('button', { class: 'chip small', type: 'button', onclick: fill }, '未入力を満点で埋める')));
+          if (s.score.hint) body.append(h('p', { class: 'hint' }, s.score.hint));
+        }
+        let group = null;
+        for (const i of s.items) {
+          if (i.group && i.group !== group) { group = i.group; body.append(h('h4', { class: 'grp' }, group)); }
+          body.append(renderItem(d, s, i));
+        }
       }
       body.append(noteBox(noteKey(d, s), 'メモ（自由記載）'));
 
@@ -857,6 +951,7 @@
     const secWrap = h('div');
     const paintDomain = () => {
       refreshers.length = 0;
+      painters.length = 0;
       secWrap.replaceChildren(...domain.sections.map((s, n) => renderSection(domain, s, n === 0)));
       refreshers.forEach(f => f());
     };
@@ -918,8 +1013,32 @@
       for (const d of DOMAINS) for (const s of d.sections) {
         const pObs = sectionObserved(p, d, s), cObs = sectionObserved(a, d, s);
         const rows = [];
+        if (s.score) {
+          const cs = scoreOf(a, d, s), ps = scoreOf(p, d, s);
+          const line = (label, c, pv) => {
+            if (!c && !pv) return;
+            let st = null;
+            if (c && pv && c.n === c.N && pv.n === pv.N) {
+              const dl = c.sum - pv.sum;
+              st = h('span', { class: 'st ' + (dl > 0 ? 'better' : dl < 0 ? 'worse' : 'same') },
+                dl ? `${dl > 0 ? '改善' : '低下'} ${signed(dl)}` : '変化なし');
+            }
+            rows.push(h('div', { class: 'cmp-row total' },
+              h('span', { class: 'cmp-label' }, label),
+              h('span', { class: 'cmp-val' },
+                p ? [h('span', { class: 'old' }, pv ? scoreText(pv) : '—'), h('span', { class: 'arrow' }, '→')] : null,
+                h('strong', null, c ? scoreText(c) : '—')),
+              st));
+          };
+          line('合計', cs, ps);
+          const labels = [...new Set([...(cs ? cs.groups : []), ...(ps ? ps.groups : [])].map(g => g.label).filter(Boolean))];
+          labels.forEach(l => line(l, scoreGroup(cs, l), scoreGroup(ps, l)));
+        }
         for (const i of s.items) for (const f of fieldsOf(d, s, i)) {
           const cv = a.values[f.key], pv = p ? p.values[f.key] : undefined;
+          // 点数セクションは、満点の項目を省いて減点のある項目だけ並べる
+          const lost = v => hasValue(v) && v < i.max;
+          if (s.score && i.type === 'scale' && !lost(cv) && !lost(pv)) continue;
           const r = compare(i, pv, cv, pObs, cObs);
           if (!r) continue;
           if (p && tally[r.st] != null) tally[r.st]++;
