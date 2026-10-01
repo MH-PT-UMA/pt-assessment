@@ -1,6 +1,6 @@
 /* オフライン用キャッシュ。アプリのファイルだけを保存し、評価データには触れない。
    ファイルを更新したら CACHE の番号を上げる（上げなくても次々回の起動で新しくなる）。 */
-const CACHE = 'pt-assessment-v4';
+const CACHE = 'pt-assessment-v5';
 const ASSETS = [
   './',
   'index.html',

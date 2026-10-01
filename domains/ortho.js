@@ -19,6 +19,18 @@
     };
   }
 
+  // 周径の項目（左右別・cm・0.5刻み）。pick は入力画面の選択ボタンに出る短い名前、init は＋/−の開始値
+  function g(id, group, pick, label, init, say) {
+    return {
+      id: id, group: group, pick: pick, label: label, type: 'number', unit: 'cm', step: 0.5, init: init,
+      min: 5, max: 120, bilateral: true, say: say
+    };
+  }
+  function thigh(n, init) {
+    return g('thigh' + n, '大腿', '膝上' + n + 'cm', '大腿（膝上' + n + 'cm）', init,
+      ['大腿周径' + n, '大腿' + n + 'センチ', '大腿' + n + 'cm', '膝上' + n, '膝蓋骨上' + n]);
+  }
+
   // 部位ごとのセクション。plain はクライアント向け文章での部位の呼び方
   function region(id, label, plain, items) {
     var sides = function (v, want) { return ['R', 'L'].filter(function (k) { return v[k] === want; }); };
@@ -129,11 +141,40 @@
         t('squeeze', 'スクイーズテスト'),
         t('windlass', 'ウィンドラステスト', ['ウィンドラス']),
         t('tinel_tarsal', '足根管ティネル徴候', ['足根管ティネル'])
-      ])
+      ]),
+      // ------------------------------------------------------------
+      {
+        id: 'girth', label: '周径', optional: true, say: ['周径'],
+        items: [
+          g('arm', '上腕', '最大', '上腕（最大）', 26, ['上腕周径', '上腕最大周径']),
+          g('forearm_max', '前腕', '最大', '前腕（最大）', 24, ['前腕周径', '前腕最大周径', '前腕周径最大']),
+          g('forearm_min', '前腕', '最小', '前腕（最小）', 16, ['前腕最小周径', '前腕周径最小']),
+          g('thigh0', '大腿', '膝蓋骨直上', '大腿（膝蓋骨直上）', 36, ['大腿周径直上', '膝蓋骨直上', '大腿周径0', '膝上0']),
+          thigh(5, 38), thigh(10, 42), thigh(15, 46), thigh(20, 50),
+          g('calf_max', '下腿', '最大', '下腿（最大）', 34, ['下腿周径', '下腿最大周径', '下腿周径最大', 'ふくらはぎ周径']),
+          g('calf_min', '下腿', '最小', '下腿（最小）', 21, ['下腿最小周径', '下腿周径最小'])
+        ],
+        // 部位ごとに、左右差がいちばん大きい高さを見て 1cm 以上なら伝える
+        client: function (get) {
+          var plain = { '上腕': '二の腕', '前腕': '前腕', '大腿': '太もも', '下腿': 'ふくらはぎ' };
+          var worst = {};
+          this.items.forEach(function (i) {
+            var v = get(i.id);
+            if (!v || v.R == null || v.L == null) return;
+            var d = Math.round((v.R - v.L) * 10) / 10;
+            if (Math.abs(d) >= 1 && (!worst[i.group] || Math.abs(d) > Math.abs(worst[i.group]))) worst[i.group] = d;
+          });
+          return Object.keys(worst).map(function (grp) {
+            var d = worst[grp];
+            return { text: plain[grp] + 'の太さに左右差があります（' + (d < 0 ? '右' : '左') + 'のほうが約' + Math.abs(d) + 'cm細め）。', ex: [] };
+          });
+        }
+      }
     ]
   });
 
   PTA.voiceFixes = (PTA.voiceFixes || []).concat([
+    ['周計', '周径'], ['週径', '周径'], ['終径', '周径'], ['しゅうけい', '周径'], ['膝蓋骨上縁', '膝蓋骨上'],
     ['エスエルアールテスト', 'slrテスト'], ['エフエヌエス', 'fns'], ['ファダー', 'fadir'], ['フェイバー', 'faber']
   ]);
 })();

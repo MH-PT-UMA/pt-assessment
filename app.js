@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.3.0';
+  const APP_VERSION = '1.4.0';
   const PTA = window.PTA;
   const DOMAINS = PTA.domains;
   const EX = PTA.exercises;
@@ -1102,7 +1102,7 @@
           const fields = fieldsOf(d, s, i);
           const filled = () => fields.some(f => hasValue(a.values[f.key]));
           let row = null;
-          const chip = h('button', { class: 'chip small', type: 'button' }, i.chip || i.label);
+          const chip = h('button', { class: 'chip small', type: 'button' }, i.pick || i.chip || i.label);
           const holder = h('div', { hidden: true });
           const build = () => {
             row = renderItem(d, s, i, () => {
