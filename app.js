@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.2.0';
+  const APP_VERSION = '1.3.0';
   const PTA = window.PTA;
   const DOMAINS = PTA.domains;
   const EX = PTA.exercises;
@@ -1128,7 +1128,8 @@
           if (i.group !== group) {
             group = i.group;
             line = h('div', { class: 'chips' });
-            picker.append(h('div', { class: 'picker-line' }, h('span', { class: 'picker-group' }, group || ''), line));
+            picker.append(h('div', { class: 'picker-line' + (group ? '' : ' plain') },
+              group ? h('span', { class: 'picker-group' }, group) : null, line));
           }
           line.append(chip);
           rows.append(holder);
@@ -1256,6 +1257,12 @@
         const items = todo();
         if (!items.length && !parsed.memo) return toast('反映できる項目がありません');
         const open = new Set([...secWrap.querySelectorAll('details[open]')].map(x => x.dataset.sid));
+        // 反映先が別の領域だけなら、その領域のタブに切り替える
+        if (items.length && !items.some(x => x.d === domain)) {
+          domain = items[0].d;
+          open.clear();
+          if (tabs) [...tabs.children].forEach((b, n) => b.classList.toggle('on', DOMAINS[n] === domain));
+        }
         for (const x of items) {
           let v = x.value;
           if (x.i.type === 'multi') {

@@ -43,7 +43,8 @@
   // 音声入力での関節の呼び方（「股関節屈曲」「股屈曲」「股関節の屈曲」のどれでも通じるようにする）
   var JOINT = {
     '肩': ['肩', '肩関節'], '股': ['股', '股関節'], '膝': ['膝', '膝関節', 'ひざ'], '足': ['足', '足関節', '足首'],
-    '体幹': ['体幹'], '頸': ['頸', '頸部', '首'], '肩甲骨': ['肩甲骨']
+    '体幹': ['体幹'], '頸': ['頸', '頸部', '首'], '肩甲骨': ['肩甲骨'], '肩甲帯': ['肩甲帯'],
+    '肘': ['肘', '肘関節', 'ひじ'], '前腕': ['前腕'], '手': ['手', '手関節', '手首'], '母趾': ['母趾', '足の親指']
   };
   function says(group, name) {
     var out = [];
@@ -57,7 +58,7 @@
     var limit = o.limit != null ? o.limit : ref * 0.8;
     var text = function (s) { return s + plain + 'がややかたい傾向があります。'; };
     return {
-      id: id, group: group, chip: name, label: group + name, plain: plain, say: says(group, name),
+      id: id, group: group, chip: name, label: group + name, plain: plain, say: says(group, name).concat(o.say || []),
       type: 'number', unit: '°', step: 5, init: ref, min: -30, max: 200, better: 'high',
       bilateral: !o.single, ex: ex,
       client: o.single
@@ -223,25 +224,50 @@
       {
         id: 'rom', label: 'ROM', optional: true,
         items: [
+          // 数字は参考可動域（日本整形外科学会・日本リハビリテーション医学会の表示法）
+          rom('頸', '屈曲', 'nk_flex', '首を前に倒す動き', 60, ['neck_stretch', 'chin_tuck'], { single: true }),
+          rom('頸', '伸展', 'nk_ext', '首を後ろに倒す動き', 50, ['chin_tuck', 'thoracic_ext'], { single: true }),
+          rom('頸', '回旋', 'nk_rot', '首を回す動き', 60, ['neck_stretch'], { pre: PRE_DIR }),
+          rom('頸', '側屈', 'nk_side', '首を横に倒す動き', 50, ['neck_stretch'], { pre: PRE_DIR }),
+          rom('肩甲帯', '屈曲', 'sg_flex', '肩を前に出す動き', 20, ['shoulder_blade']),
+          rom('肩甲帯', '伸展', 'sg_ext', '肩を後ろに引く動き', 20, ['pec_stretch', 'shoulder_blade']),
+          rom('肩甲帯', '挙上', 'sg_elev', '肩をすくめる動き', 20, ['shoulder_blade']),
+          rom('肩甲帯', '下制', 'sg_dep', '肩を下げる動き', 10, ['neck_stretch']),
           rom('肩', '屈曲', 'sh_flex', '腕を前から上げる動き', 180, ['wall_angel', 'thoracic_ext']),
+          rom('肩', '伸展', 'sh_ext', '腕を後ろに引く動き', 50, ['pec_stretch']),
           rom('肩', '外転', 'sh_abd', '腕を横から上げる動き', 180, ['wall_angel', 'pec_stretch']),
           rom('肩', '外旋', 'sh_er', '腕を外にひねる動き', 60, ['pec_stretch']),
           rom('肩', '内旋', 'sh_ir', '腕を内にひねる動き', 80, ['shoulder_post']),
+          rom('肩', '外旋2nd', 'sh_er2', '腕を上げた位置で外にひねる動き', 90, ['pec_stretch'], { say: ['セカンド外旋', '肩セカンド外旋'] }),
+          rom('肩', '内旋2nd', 'sh_ir2', '腕を上げた位置で内にひねる動き', 70, ['shoulder_post'], { say: ['セカンド内旋', '肩セカンド内旋'] }),
+          rom('肩', '水平屈曲', 'sh_hflex', '腕を胸の前に寄せる動き', 135, ['shoulder_post']),
+          rom('肩', '水平伸展', 'sh_hext', '腕を横から後ろに開く動き', 30, ['pec_stretch']),
+          rom('肘', '屈曲', 'el_flex', 'ひじを曲げる動き', 145, ['elbow_bend']),
+          rom('肘', '伸展', 'el_ext', 'ひじを伸ばしきる動き', 5, ['elbow_bend'], { limit: -4 }),
+          rom('前腕', '回内', 'fa_pro', '手のひらを下に向ける動き', 90, ['wrist_stretch']),
+          rom('前腕', '回外', 'fa_sup', '手のひらを上に向ける動き', 90, ['wrist_stretch']),
+          rom('手', '掌屈', 'wr_flex', '手首を手のひら側に曲げる動き', 90, ['wrist_stretch']),
+          rom('手', '背屈', 'wr_ext', '手首を反らす動き', 70, ['wrist_stretch']),
+          rom('手', '橈屈', 'wr_rad', '手首を親指側に倒す動き', 25, ['wrist_stretch']),
+          rom('手', '尺屈', 'wr_uln', '手首を小指側に倒す動き', 55, ['wrist_stretch']),
+          rom('体幹', '屈曲', 'tr_flex', '体を前に曲げる動き', 45, ['cat_cow'], { single: true }),
+          rom('体幹', '伸展', 'tr_ext', '体を後ろに反らす動き', 30, ['thoracic_ext'], { single: true }),
+          rom('体幹', '回旋', 'tr_rot', '体をひねる動き', 40, ['thoracic_rot'], { pre: PRE_DIR }),
+          rom('体幹', '側屈', 'tr_side', '体を横に倒す動き', 50, ['side_stretch'], { pre: PRE_DIR }),
           rom('股', '屈曲', 'hip_flex', '股関節を曲げる動き', 125, ['knee_hug']),
           rom('股', '伸展', 'hip_ext', '脚を後ろに引く動き', 15, ['hipflexor_stretch'], { limit: 10 }),
           rom('股', '外転', 'hip_abd', '脚を横に開く動き', 45, ['adductor_stretch']),
+          rom('股', '内転', 'hip_add', '脚を内側に閉じる動き', 20, ['hip_rot']),
           rom('股', '内旋', 'hip_ir', '股関節を内にひねる動き', 45, ['hip_rot']),
           rom('股', '外旋', 'hip_er', '股関節を外にひねる動き', 45, ['hip_rot']),
           rom('膝', '屈曲', 'knee_flex', '膝を曲げる動き', 130, ['quad_stretch']),
           rom('膝', '伸展', 'knee_ext', '膝を伸ばしきる動き', 0, ['ham_stretch'], { limit: -4 }),
           rom('足', '背屈', 'ank_df', '足首を反らす動き', 20, ['calf_stretch'], { limit: 15 }),
           rom('足', '底屈', 'ank_pf', '足首を伸ばす動き', 45, ['ankle_circle']),
-          rom('体幹', '屈曲', 'tr_flex', '体を前に曲げる動き', 45, ['cat_cow'], { single: true }),
-          rom('体幹', '伸展', 'tr_ext', '体を後ろに反らす動き', 30, ['thoracic_ext'], { single: true }),
-          rom('体幹', '回旋', 'tr_rot', '体をひねる動き', 40, ['thoracic_rot'], { pre: PRE_DIR }),
-          rom('体幹', '側屈', 'tr_side', '体を横に倒す動き', 50, ['side_stretch'], { pre: PRE_DIR }),
-          rom('頸', '回旋', 'nk_rot', '首を回す動き', 60, ['neck_stretch'], { pre: PRE_DIR }),
-          rom('頸', '側屈', 'nk_side', '首を横に倒す動き', 50, ['neck_stretch'], { pre: PRE_DIR })
+          rom('足', '内がえし', 'ank_inv', '足の裏を内側に向ける動き', 30, ['ankle_circle']),
+          rom('足', '外がえし', 'ank_ev', '足の裏を外側に向ける動き', 20, ['ankle_circle']),
+          rom('母趾', '伸展', 'toe_ext', '足の親指を反らす動き', 60, ['toe_stretch']),
+          rom('母趾', '屈曲', 'toe_flex', '足の親指を曲げる動き', 35, ['toe_stretch'])
         ]
       },
       // ------------------------------------------------------------
@@ -473,6 +499,9 @@
     ['エヌアールエス', 'nrs'], ['エスエルアール', 'slr'], ['エフエフディー', 'ffd'], ['エイチビーディー', 'hbd'],
     ['エムエムティー', 'mmt'], ['アールオーエム', 'rom'], ['ビービーエス', 'bbs'], ['ベステスト', 'bestest'], ['ベストテスト', 'bestest'],
     ['オー脚', 'o脚'], ['エックス脚', 'x脚'],
+    ['海外', '回外'], ['将屈', '掌屈'], ['小屈', '掌屈'], ['消屈', '掌屈'], ['釈屈', '尺屈'], ['投屈', '橈屈'], ['等屈', '橈屈'],
+    ['内返し', '内がえし'], ['外返し', '外がえし'], ['うちがえし', '内がえし'], ['そとがえし', '外がえし'],
+    ['母指', '母趾'], ['拇趾', '母趾'], ['拇指', '母趾'], ['セカンドポジション', 'セカンド'], ['2nd', 'セカンド'],
     // 「腰の痛み」→「痛み 腰」の順に直す
     [/(首|頸部|肩甲骨|肩甲帯|肩|腕|上肢|背中|背部|胸背部|腰部|腰|お尻|殿部|股関節|太もも|大腿|膝|ひざ|すね|ふくらはぎ|下腿|足首|足部|足)(の|に|が)?(痛み|疼痛)/g, '痛み$1']
   ]);

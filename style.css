@@ -192,6 +192,7 @@ textarea { resize: none; display: block; }
 
 .picker { margin-bottom: 8px; }
 .picker-line { display: grid; grid-template-columns: 3.4em 1fr; margin-bottom: 8px; }
+.picker-line.plain { grid-template-columns: 1fr; }
 .picker-line .chips { gap: 6px; }
 .picker-group { font-size: 13px; font-weight: 700; color: var(--sub); line-height: 38px; }
 .opt-rows > div:not([hidden]) ~ div .item, .opt-rows .item { border-top: 1px dashed var(--line); padding-top: 10px; }
