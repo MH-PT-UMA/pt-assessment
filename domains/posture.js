@@ -105,6 +105,7 @@
   PTA.domains.push({
     id: 'posture',
     label: '姿勢・フィジカル',
+    tab: '姿勢',
     sections: [
       // ------------------------------------------------------------
       {
@@ -236,6 +237,7 @@
           rom('肩', '屈曲', 'sh_flex', '腕を前から上げる動き', 180, ['wall_angel', 'thoracic_ext']),
           rom('肩', '伸展', 'sh_ext', '腕を後ろに引く動き', 50, ['pec_stretch']),
           rom('肩', '外転', 'sh_abd', '腕を横から上げる動き', 180, ['wall_angel', 'pec_stretch']),
+          rom('肩', '内転', 'sh_add', '腕を体の内側へ寄せる動き', 0, ['shoulder_post'], { limit: -4 }),
           rom('肩', '外旋', 'sh_er', '腕を外にひねる動き', 60, ['pec_stretch']),
           rom('肩', '内旋', 'sh_ir', '腕を内にひねる動き', 80, ['shoulder_post']),
           rom('肩', '外旋2nd', 'sh_er2', '腕を上げた位置で外にひねる動き', 90, ['pec_stretch'], { say: ['セカンド外旋', '肩セカンド外旋'] }),
@@ -283,6 +285,7 @@
           mmt('肩', '屈曲', 'sh_flex', '腕を前に上げる筋肉', ['wall_angel']),
           mmt('肩', '伸展', 'sh_ext', '腕を後ろに引く筋肉', ['shoulder_blade']),
           mmt('肩', '外転', 'sh_abd', '腕を横に上げる筋肉', ['wall_angel']),
+          mmt('肩', '内転', 'sh_add', '腕を体に引き寄せる筋肉', ['shoulder_blade', 'wall_pushup']),
           mmt('肩', '外旋', 'sh_er', '肩のインナーマッスル', ['shoulder_er']),
           mmt('肩', '内旋', 'sh_ir', '腕を内にひねる筋肉', ['wall_pushup']),
           mmt('肩', '水平外転', 'sh_habd', '腕を横に開く筋肉', ['shoulder_blade']),

@@ -1,6 +1,6 @@
 /* オフライン用キャッシュ。アプリのファイルだけを保存し、評価データには触れない。
    ファイルを更新したら CACHE の番号を上げる（上げなくても次々回の起動で新しくなる）。 */
-const CACHE = 'pt-assessment-v5';
+const CACHE = 'pt-assessment-v6';
 const ASSETS = [
   './',
   'index.html',
@@ -9,6 +9,7 @@ const ASSETS = [
   'domains/exercises.js',
   'domains/posture.js',
   'domains/ortho.js',
+  'domains/neuro.js',
   'manifest.json',
   'icons/icon-180.png',
   'icons/icon-192.png',

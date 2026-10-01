@@ -9,6 +9,7 @@
 | `index.html` / `style.css` / `app.js` | アプリ本体 |
 | `domains/posture.js` | 評価領域①「姿勢・フィジカル」の項目定義と、クライアント向け説明文 |
 | `domains/ortho.js` | 評価領域②「運動器」の整形外科テストと周径 |
+| `domains/neuro.js` | 評価領域④「脳血管・神経」の麻痺側・BRS・SIAS・MAS |
 | `domains/exercises.js` | おすすめ運動の一覧（運動名・やり方・目安） |
 | `manifest.json` / `sw.js` / `icons/` | ホーム画面への追加とオフライン動作 |
 

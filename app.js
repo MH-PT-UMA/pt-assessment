@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.4.0';
+  const APP_VERSION = '1.5.0';
   const PTA = window.PTA;
   const DOMAINS = PTA.domains;
   const EX = PTA.exercises;
@@ -247,12 +247,14 @@
     if (sc.complete && s.score.percent) t += `（${round1(sc.sum / sc.max * 100)}%）`;
     const named = sc.groups.filter(g => g.label && g.n);
     if (named.length) t += '\n' + named.map(g => `${g.label} ${scoreText(g)}`).join('、');
+    // 通常は減点のある項目だけ、score.detail が 'all' なら全項目を並べる
+    const all = s.score.detail === 'all';
     const lost = [];
     for (const i of s.items) for (const f of fieldsOf(d, s, i)) {
       const v = a.values[f.key];
-      if (i.type === 'scale' && hasValue(v) && v < i.max) lost.push(`${i.label}${f.side ? f.side : ''} ${v}`);
+      if (i.type === 'scale' && hasValue(v) && (all || v < i.max)) lost.push(`${i.label}${f.side ? f.side : ''} ${v}`);
     }
-    if (lost.length) t += `\n減点：${lost.join('、')}`;
+    if (lost.length) t += `\n${all ? '内訳' : '減点'}：${lost.join('、')}`;
     return t;
   }
 
@@ -492,11 +494,15 @@
 
   // 同じ呼び名の項目が複数あるとき（ROMとMMTの「股屈曲」など）に1つへ絞る
   function resolveVoice(cands, ctx, v) {
-    if (ctx) { const x = cands.filter(c => c.s === ctx.s); if (x.length) cands = x; }
+    // 「ROM」「MMT」と口に出して指定されたときはそれに従う。指定がなければ下の数字の大きさで決める
+    const said = ctx && ctx.explicit && cands.some(c => c.s === ctx.s);
+    const mixed = cands.some(c => c.i.type === 'scale') && cands.some(c => c.i.type === 'number');
+    if (ctx && (said || !(mixed && typeof v === 'number'))) { const x = cands.filter(c => c.s === ctx.s); if (x.length) cands = x; }
     if (cands.length > 1) { const x = cands.filter(c => !c.s.score); if (x.length) cands = x; }
     if (cands.length > 1 && typeof v === 'number') {
       const sc = cands.filter(c => c.i.type === 'scale'), nm = cands.filter(c => c.i.type === 'number');
-      if (sc.length && nm.length) cands = Number.isInteger(v) && v >= 0 && v <= sc[0].i.max ? sc : nm;
+      // 1〜5 は MMT、それ以外（0 やマイナス、大きい数）は ROM とみなす
+      if (sc.length && nm.length) cands = Number.isInteger(v) && v >= 1 && v <= sc[0].i.max ? sc : nm;
     }
     return cands.length === 1 ? cands[0] : null;
   }
@@ -529,7 +535,7 @@
       const num = c0.ev.find(e => typeof e.v === 'number');
       const c = c0.fixed || resolveVoice(c0.cands, ctx, num ? num.v : undefined);
       if (!c) { left += c0.text; return; }
-      ctx = { d: c.d, s: c.s };
+      ctx = { d: c.d, s: c.s, explicit: !!(ctx && ctx.explicit && ctx.s === c.s) };
       const i = c.i;
       const put = (sd, v) => entries.push({ d: c.d, s: c.s, i, side: sd, value: v });
       const free = c0.free.flatMap(expand);
@@ -603,7 +609,7 @@
           else if (voc.chips.length) {
             const same = voc.chips.filter(c => c.i.group === lastGroup);
             if (same.length) startItem(same, voc.alias); else left += voc.alias;
-          } else if (voc.section) { closeCur(); ctx = voc.section; side = null; lastTok = 'section'; }
+          } else if (voc.section) { closeCur(); ctx = { ...voc.section, explicit: true }; side = null; lastTok = 'section'; }
         } else {
           side = sideTok[1];
           if (cur) cur.free.push(side);
@@ -1180,7 +1186,7 @@
       refreshers.forEach(f => f());
     };
     const tabs = DOMAINS.length > 1 ? h('div', { class: 'tabs' }, DOMAINS.map(d => {
-      const b = h('button', { type: 'button', class: d === domain ? 'on' : '' }, d.label);
+      const b = h('button', { type: 'button', class: d === domain ? 'on' : '' }, d.tab || d.label);
       b.addEventListener('click', () => {
         domain = d;
         [...b.parentNode.children].forEach(x => x.classList.toggle('on', x === b));
@@ -1304,7 +1310,7 @@
               'BBS 14番 3点、13番 3点',
               'メモ ○○（「メモ」以降は総合所見に入ります）'
             ].map(x => h('li', null, x))),
-            h('p', { class: 'hint' }, 'ROMとMMTで同じ名前の項目は、先に「ROM」「MMT」と言うと確実です。言わない場合は、5以下の数字をMMTとして扱います。'),
+            h('p', { class: 'hint' }, 'ROMとMMTで同じ名前の項目は、先に「ROM」「MMT」と言うと確実です。言わない場合は、1〜5の数字をMMT、それ以外をROMとして扱います。'),
             SR ? h('p', { class: 'hint' }, '「話して入力」の音声は、ブラウザの音声認識（GoogleやAppleのサーバー）で文字に変換されます。') : null),
           h('div', { class: 'sheet-foot' }, h('button', { class: 'btn primary', type: 'button', onclick: apply }, '反映する'))));
       $app.append(sheet);

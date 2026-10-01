@@ -68,6 +68,7 @@
   PTA.domains.push({
     id: 'ortho',
     label: '運動器',
+    tab: '運動器',
     sections: [
       region('neck', '整形外科テスト：頸部・胸郭出口', '首まわり', [
         t('spurling', 'スパーリングテスト', ['スパーリング']),
