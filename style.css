@@ -202,6 +202,29 @@ textarea { resize: none; display: block; }
 .grp + .item, .score-line + .item, .score-line + .hint + .item { border-top: 0; padding-top: 0; }
 .cmp-row.total .cmp-label { font-weight: 700; }
 
+/* ---------- 音声入力 */
+.btn.voice-btn { flex: 0 0 auto; padding: 0 14px; }
+.sheet-wrap { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; justify-content: flex-end; }
+.sheet-back { position: absolute; inset: 0; background: rgba(0, 0, 0, .45); }
+.sheet {
+  position: relative; width: 100%; max-width: 560px; max-height: 88vh; margin: 0 auto; overflow-y: auto;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+  background: var(--card); border-radius: 18px 18px 0 0;
+}
+.sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 17px; }
+.btn.mic { display: block; width: 100%; }
+.btn.mic.on { background: var(--bad-bg); border-color: var(--bad); color: var(--bad); }
+.voice-text { margin-top: 4px; }
+.voice-list { margin: 10px 0; }
+.voice-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14.5px; }
+.voice-row span { flex: 1; }
+.voice-row .clear { margin-left: 0; flex: none; }
+.hint.warn { color: var(--bad); }
+.voice-help { margin: 8px 0; font-size: 14px; color: var(--sub); }
+.voice-help summary { min-height: 36px; line-height: 36px; cursor: pointer; }
+.voice-help ul { margin: 4px 0; padding-left: 20px; }
+.sheet-foot { position: sticky; bottom: 0; display: flex; padding-top: 8px; background: var(--card); }
+
 /* ---------- 結果・比較 */
 .tally { display: flex; gap: 8px; margin-bottom: 10px; }
 .tally .st { flex: 1; text-align: center; padding: 8px 4px; font-size: 14px; }

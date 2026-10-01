@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.1.0';
+  const APP_VERSION = '1.2.0';
   const PTA = window.PTA;
   const DOMAINS = PTA.domains;
   const EX = PTA.exercises;
@@ -423,6 +423,224 @@
     return blocks.join('\n\n');
   }
 
+  // ---------------------------------------------------------------- 音声入力（話した言葉 → 項目）
+  // 例：「股関節屈曲 右110 左120、MMT 股外転 右3 左4、NRS 4 腰 動作時、頭部前方位、メモ ○○」
+  // 項目の呼び名は定義の label と say（別の言い方）から作る。聞き間違いは PTA.voiceFixes で直す
+  function kanjiNum(s) {
+    const D = '〇一二三四五六七八九';
+    let n = 0, cur = 0;
+    for (const ch of s) {
+      if (ch === '百') { n += (cur || 1) * 100; cur = 0; }
+      else if (ch === '十') { n += (cur || 1) * 10; cur = 0; }
+      else if (ch === '零') cur = 0;
+      else cur = cur * 10 + D.indexOf(ch);
+    }
+    return String(n + cur);
+  }
+  function normVoice(t) {
+    t = t.normalize('NFKC').toLowerCase()
+      .replace(/(\d)\s+(?=-?\d)/g, '$1、') // 「110 120」が1つの数にならないように区切る
+      .replace(/\s+/g, '').replace(/マイナス|−/g, '-');
+    for (const [from, to] of PTA.voiceFixes || []) t = typeof from === 'string' ? t.split(from).join(to) : t.replace(from, to);
+    return t.replace(/[〇零一二三四五六七八九十百]+(?=度|点|センチ|秒|番)/g, kanjiNum);
+  }
+
+  const VOICE_SIDES = [['左右とも', 'B'], ['両側', 'B'], ['両方', 'B'], ['左右', 'B'], ['両', 'B'],
+    ['右', 'R'], ['みぎ', 'R'], ['左', 'L'], ['ひだり', 'L']];
+  const VOICE_SKIP = /^(度|°|センチメートル|センチ|cm|秒|点|レベル|は|が|の|を|に|で|と|も|、|。|,|\.|・|:|\/)/;
+
+  // 呼び名 → {section, items[], directs[]}
+  const VOCAB = (() => {
+    const map = new Map();
+    const add = (alias, kind, payload) => {
+      const k = normVoice(alias);
+      if (!k) return;
+      let e = map.get(k);
+      if (!e) map.set(k, e = { alias: k, section: null, items: [], directs: [], chips: [] });
+      if (kind === 'section') e.section = payload; else e[kind].push(payload);
+    };
+    for (const d of DOMAINS) for (const s of d.sections) {
+      for (const al of s.say || []) add(al, 'section', { d, s });
+      for (const i of s.items) {
+        const c = { d, s, i };
+        const names = new Set([...(i.sayOnly ? [] : [i.label]), ...(i.say || [])]);
+        const m = /^(\d+)([A-Da-d])?\s+(.+)$/.exec(i.label); // 「14 片脚立位」→「14番」「項目14」「片脚立位」
+        if (m) {
+          names.delete(i.label);
+          const no = m[1] + (m[2] || '');
+          [`${no}番`, `${m[1]}番${m[2] || ''}`, `項目${no}`, m[3]].forEach(x => names.add(x));
+        }
+        names.forEach(al => add(al, 'items', c));
+        if (i.group && i.chip) add(i.chip, 'chips', c); // 「肩外旋 45、内旋 80」のように関節名を省いた言い方
+        for (const [al, v] of Object.entries(i.direct || {})) add(al, 'directs', { ...c, v });
+        for (const o of i.options || []) if (o.rec) add(o.rec, 'directs', { ...c, v: o.v });
+      }
+    }
+    let maxLen = 0;
+    map.forEach(e => { maxLen = Math.max(maxLen, e.alias.length); });
+    return { map, maxLen };
+  })();
+
+  const voiceOptCache = new Map();
+  function voiceOpts(i) {
+    if (!voiceOptCache.has(i)) {
+      voiceOptCache.set(i, (i.options || []).flatMap(o =>
+        [...new Set([o.label, ...(o.say || [])])].map(al => ({ alias: normVoice(al), v: o.v }))));
+    }
+    return voiceOptCache.get(i);
+  }
+
+  // 同じ呼び名の項目が複数あるとき（ROMとMMTの「股屈曲」など）に1つへ絞る
+  function resolveVoice(cands, ctx, v) {
+    if (ctx) { const x = cands.filter(c => c.s === ctx.s); if (x.length) cands = x; }
+    if (cands.length > 1) { const x = cands.filter(c => !c.s.score); if (x.length) cands = x; }
+    if (cands.length > 1 && typeof v === 'number') {
+      const sc = cands.filter(c => c.i.type === 'scale'), nm = cands.filter(c => c.i.type === 'number');
+      if (sc.length && nm.length) cands = Number.isInteger(v) && v >= 0 && v <= sc[0].i.max ? sc : nm;
+    }
+    return cands.length === 1 ? cands[0] : null;
+  }
+
+  // 戻り値 {list: [{key, d, s, i, side, value, text}], left: 読み取れなかった部分, memo}
+  function parseVoice(raw) {
+    let memo = '';
+    const mm = /(メモ|コメント)[、。,:：\s]*/.exec(raw);
+    if (mm) { memo = raw.slice(mm.index + mm[0].length).trim(); raw = raw.slice(0, mm.index); }
+    const t = normVoice(raw);
+    const entries = [];
+    let ctx = null, cur = null, side = null, lastTok = '', left = '', lastGroup = null;
+    const expand = sd => (sd === 'B' ? ['R', 'L'] : [sd]);
+    const isOpt = c => c.i.type === 'choice' || c.i.type === 'multi';
+    const matchOpt = (cands, p) => {
+      let best = null;
+      for (const c of cands) {
+        if (!isOpt(c)) continue;
+        for (const o of voiceOpts(c.i)) {
+          if (o.alias && t.startsWith(o.alias, p) && (!best || o.alias.length > best.len)) best = { c, v: o.v, len: o.alias.length };
+        }
+      }
+      return best;
+    };
+
+    const closeCur = () => {
+      const c0 = cur;
+      cur = null;
+      if (!c0) return;
+      const num = c0.ev.find(e => typeof e.v === 'number');
+      const c = c0.fixed || resolveVoice(c0.cands, ctx, num ? num.v : undefined);
+      if (!c) { left += c0.text; return; }
+      ctx = { d: c.d, s: c.s };
+      const i = c.i;
+      const put = (sd, v) => entries.push({ d: c.d, s: c.s, i, side: sd, value: v });
+      const free = c0.free.flatMap(expand);
+      if (i.type === 'check') {
+        (i.bilateral ? (free.length ? free : ['R', 'L']) : ['']).forEach(sd => put(sd, true));
+        return;
+      }
+      const ok = v => (i.type === 'number' || i.type === 'scale')
+        ? typeof v === 'number' && v >= (i.min != null ? i.min : -Infinity) && v <= (i.max != null ? i.max : Infinity)
+          && (i.type !== 'scale' || Number.isInteger(v))
+        : typeof v !== 'number';
+      const evs = c0.ev.filter(e => ok(e.v));
+      if (!evs.length) { left += c0.text; return; }
+      if (!i.bilateral) {
+        if (i.type === 'multi') evs.forEach(e => put('', e.v)); else put('', evs[evs.length - 1].v);
+        return;
+      }
+      evs.filter(e => e.side).forEach(e => expand(e.side).forEach(sd => put(sd, e.v)));
+      const un = evs.filter(e => !e.side);
+      if (!un.length) return;
+      if (free.length) free.forEach(sd => put(sd, un[0].v));        // 「トーマス 陽性 右」
+      else if (un.length >= 2) { put('R', un[0].v); put('L', un[1].v); } // 「股屈曲 110 120」→ 右・左の順
+      else { put('R', un[0].v); put('L', un[0].v); }                    // 左右の指定なし → 両側
+    };
+
+    const value = (v) => {
+      const sd = side;
+      if (sd) { cur.free.pop(); side = null; }
+      cur.ev.push({ side: sd, v });
+      lastTok = 'val';
+    };
+    const startItem = (cands, text) => {
+      // 直前の「右／左」は、次の項目に付く（「右 股屈曲 110」）。ただし前の項目が受け取るべき場合を除く
+      let carry = null;
+      if (side && lastTok === 'side') {
+        const oldKeeps = cur && (cur.cands.every(c => c.i.type === 'check') || cur.ev.some(e => !e.side && typeof e.v !== 'number'));
+        if (!oldKeeps) { carry = side; if (cur) cur.free.pop(); }
+      }
+      closeCur();
+      if (!cands.some(c => ctx && c.s === ctx.s)) {
+        ctx = new Set(cands.map(c => c.s)).size === 1 ? { d: cands[0].d, s: cands[0].s } : null;
+      }
+      cur = { cands, ev: [], free: [], text, fixed: null };
+      if (cands[0].i.group && cands.every(c => c.i.group === cands[0].i.group)) lastGroup = cands[0].i.group;
+      side = carry;
+      lastTok = 'item';
+    };
+
+    let p = 0;
+    while (p < t.length) {
+      // 候補：a) 今の項目の選択肢 b) 文脈セクションの選択肢（疼痛） c) 項目・セクション名 d) 左右
+      const a = cur ? matchOpt(cur.fixed ? [cur.fixed] : cur.cands, p) : null;
+      const loose = ctx && ctx.s.voiceLoose && (!cur || cur.cands.some(c => c.s === ctx.s))
+        ? matchOpt(ctx.s.items.map(i => ({ d: ctx.d, s: ctx.s, i })), p) : null;
+      let voc = null;
+      for (let len = Math.min(VOCAB.maxLen, t.length - p); len > 0 && !voc; len--) voc = VOCAB.map.get(t.substr(p, len)) || null;
+      const sideTok = VOICE_SIDES.find(x => t.startsWith(x[0], p));
+      const lens = [a ? a.len : 0, loose ? loose.len : 0, voc ? voc.alias.length : 0, sideTok ? sideTok[0].length : 0];
+      const best = Math.max(...lens);
+      if (best > 0) {
+        const kind = lens.indexOf(best);
+        if (kind === 0) { cur.fixed = a.c; value(a.v); }
+        else if (kind === 1) { entries.push({ ...loose.c, side: '', value: loose.v }); lastTok = 'val'; }
+        else if (kind === 2) {
+          if (voc.directs.length) {
+            const dct = voc.directs[0];
+            startItem([{ d: dct.d, s: dct.s, i: dct.i }], voc.alias);
+            cur.fixed = cur.cands[0];
+            value(dct.v);
+          } else if (voc.items.length) startItem(voc.items, voc.alias);
+          else if (voc.chips.length) {
+            const same = voc.chips.filter(c => c.i.group === lastGroup);
+            if (same.length) startItem(same, voc.alias); else left += voc.alias;
+          } else if (voc.section) { closeCur(); ctx = voc.section; side = null; lastTok = 'section'; }
+        } else {
+          side = sideTok[1];
+          if (cur) cur.free.push(side);
+          lastTok = 'side';
+        }
+        p += best;
+        continue;
+      }
+      const num = /^-?\d+(\.\d+)?/.exec(t.slice(p));
+      if (num) {
+        if (cur) value(Number(num[0])); else left += num[0];
+        p += num[0].length;
+        continue;
+      }
+      const skip = VOICE_SKIP.exec(t.slice(p));
+      if (skip) { p += skip[0].length; continue; }
+      left += t[p++];
+    }
+    closeCur();
+
+    // 同じ項目は後の発話を優先（複数選択は足し合わせる）
+    const byKey = new Map();
+    for (const e of entries) {
+      const key = itemKey(e.d, e.s, e.i) + (e.side ? `.${e.side}` : '');
+      let v = e.value;
+      if (e.i.type === 'multi') {
+        const had = byKey.has(key) ? byKey.get(key).value : [];
+        v = e.i.options.map(o => o.v).filter(x => x === v || had.includes(x));
+      }
+      byKey.set(key, { ...e, key, value: v });
+    }
+    const list = [...byKey.values()].map(e => ({
+      ...e, text: `${e.s.label}｜${e.i.label}${e.side ? ` ${SIDE_JA[e.side]}` : ''}：${fmtValue(e.i, e.value)}`
+    }));
+    return { list, left: left.length >= 2 ? left : '', memo };
+  }
+
   // ---------------------------------------------------------------- CSV
   const CSV_HEAD = ['client_id', '名前', '年齢', '目的', '登録日時', 'assessment_id', '評価日', '記録日時',
     '領域', 'セクション', '項目', '左右', '値', '単位', 'key', 'raw'];
@@ -757,10 +975,14 @@
       changed();
       refreshers.forEach(f => f());
     };
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let rec = null, listening = false;
+    const stopRec = () => { listening = false; if (rec) { try { rec.stop(); } catch (e) { /* 既に停止 */ } } };
     const onHide = () => { if (document.visibilityState === 'hidden') save(); };
     document.addEventListener('visibilitychange', onHide);
     leave = async () => {
       document.removeEventListener('visibilitychange', onHide);
+      stopRec();
       await save();
       if (!hasAny(a)) S.assessments = S.assessments.filter(x => x !== a);
     };
@@ -940,7 +1162,7 @@
       }
       body.append(noteBox(noteKey(d, s), 'メモ（自由記載）'));
 
-      return h('details', { class: 'sec', open }, h('summary', null, h('span', { class: 'sec-title' }, s.label), badge), body);
+      return h('details', { class: 'sec', open, 'data-sid': s.id }, h('summary', null, h('span', { class: 'sec-title' }, s.label), badge), body);
     }
 
     // --- 画面
@@ -949,10 +1171,11 @@
 
     let domain = DOMAINS[0];
     const secWrap = h('div');
-    const paintDomain = () => {
+    // openIds を渡すと、そのセクションを開いた状態で描き直す
+    const paintDomain = openIds => {
       refreshers.length = 0;
       painters.length = 0;
-      secWrap.replaceChildren(...domain.sections.map((s, n) => renderSection(domain, s, n === 0)));
+      secWrap.replaceChildren(...domain.sections.map((s, n) => renderSection(domain, s, openIds ? openIds.has(s.id) : n === 0)));
       refreshers.forEach(f => f());
     };
     const tabs = DOMAINS.length > 1 ? h('div', { class: 'tabs' }, DOMAINS.map(d => {
@@ -965,6 +1188,121 @@
       return b;
     })) : null;
     paintDomain();
+    const gNote = noteBox(G_NOTE, '全体の所見・方針など');
+
+    // --- 音声入力：話した言葉を読み取り、確認してから項目に反映する
+    function openVoice() {
+      const ta = h('textarea', { class: 'note voice-text', rows: 3, placeholder: '例：股関節屈曲 右110 左120、NRS 4 腰' });
+      const listEl = h('div', { class: 'voice-list' });
+      const skip = new Set();
+      let parsed = { list: [], left: '', memo: '' };
+      const todo = () => parsed.list.filter(x => !skip.has(x.key));
+
+      const repaint = () => {
+        parsed = parseVoice(ta.value);
+        const rows = todo().map(x => h('div', { class: 'voice-row' }, h('span', null, x.text),
+          h('button', { class: 'clear', type: 'button', 'aria-label': 'この行を外す', onclick: () => { skip.add(x.key); repaint(); } }, '×')));
+        if (parsed.memo) rows.push(h('div', { class: 'voice-row' }, h('span', null, `総合所見：${parsed.memo}`)));
+        if (parsed.left) rows.push(h('p', { class: 'hint warn' }, `読み取れなかった部分：${parsed.left}`));
+        if (!rows.length) rows.push(h('p', { class: 'hint' }, ta.value.trim() ? '項目として読み取れる言葉がありません。' : '話した内容がここに項目として並びます。'));
+        listEl.replaceChildren(...rows);
+      };
+      ta.addEventListener('input', () => { fit(ta); repaint(); });
+
+      const mic = SR ? h('button', { class: 'btn mic', type: 'button' }) : null;
+      const paintMic = () => {
+        if (!mic) return;
+        mic.textContent = listening ? '■ 止める（聞き取り中…）' : '🎤 話して入力';
+        mic.classList.toggle('on', listening);
+      };
+      const start = () => {
+        rec = new SR();
+        rec.lang = 'ja-JP';
+        rec.interimResults = true;
+        rec.continuous = false; // 1文ごとに区切り、onend で聞き取りを続ける（機種差が出にくい）
+        const base = ta.value;
+        rec.onresult = e => {
+          let s = '';
+          for (const r of e.results) s += r[0].transcript;
+          ta.value = base + (base && s ? '、' : '') + s;
+          fit(ta);
+          repaint();
+        };
+        rec.onerror = e => {
+          if (e.error === 'no-speech' || e.error === 'aborted') { listening = false; return; }
+          listening = false;
+          toast(e.error === 'not-allowed' || e.error === 'service-not-allowed'
+            ? 'マイクが許可されていません。キーボードのマイクで入力してください'
+            : '音声を聞き取れませんでした。キーボードのマイクも使えます');
+        };
+        rec.onend = () => {
+          if (listening) { try { start(); } catch (e) { listening = false; } }
+          paintMic();
+        };
+        rec.start();
+      };
+      if (mic) {
+        mic.addEventListener('click', () => {
+          if (listening) { stopRec(); paintMic(); return; }
+          listening = true;
+          try { start(); } catch (e) { listening = false; toast('音声入力を開始できませんでした'); }
+          paintMic();
+        });
+        paintMic();
+      }
+
+      const close = () => { stopRec(); sheet.remove(); };
+      const apply = () => {
+        const items = todo();
+        if (!items.length && !parsed.memo) return toast('反映できる項目がありません');
+        const open = new Set([...secWrap.querySelectorAll('details[open]')].map(x => x.dataset.sid));
+        for (const x of items) {
+          let v = x.value;
+          if (x.i.type === 'multi') {
+            const had = Array.isArray(a.values[x.key]) ? a.values[x.key] : [];
+            v = x.i.options.map(o => o.v).filter(o => v.includes(o) || had.includes(o));
+          }
+          a.values[x.key] = v;
+          if (x.d === domain) open.add(x.s.id);
+        }
+        if (parsed.memo) {
+          a.values[G_NOTE] = (a.values[G_NOTE] ? a.values[G_NOTE] + '\n' : '') + parsed.memo;
+          gNote.value = a.values[G_NOTE];
+        }
+        changed();
+        paintDomain(open);
+        close();
+        toast(`${items.length + (parsed.memo ? 1 : 0)}件を反映しました`);
+      };
+
+      const sheet = h('div', { class: 'sheet-wrap' },
+        h('div', { class: 'sheet-back', onclick: close }),
+        h('div', { class: 'sheet', role: 'dialog', 'aria-label': '音声入力' },
+          h('div', { class: 'sheet-head' }, h('strong', null, '音声入力'),
+            h('button', { class: 'clear', type: 'button', 'aria-label': '閉じる', onclick: close }, '×')),
+          mic,
+          h('p', { class: 'hint' }, SR
+            ? '「話して入力」が使えないときは、下の欄をタップしてキーボードのマイクで話してください。'
+            : '下の欄をタップし、キーボードのマイクで話してください（文字で打っても読み取ります）。'),
+          ta,
+          listEl,
+          h('details', { class: 'voice-help' }, h('summary', null, '話し方の例'),
+            h('ul', null, [
+              '股関節屈曲 右110 左120',
+              'MMT 股外転 右3 左4',
+              'SLR 右60 左70、FFD 5センチ',
+              'NRS 4 腰 右 動作時',
+              '頭部前方位、骨盤前傾、右肩高位',
+              'トーマステスト 右 陽性',
+              'BBS 14番 3点、13番 3点',
+              'メモ ○○（「メモ」以降は総合所見に入ります）'
+            ].map(x => h('li', null, x))),
+            h('p', { class: 'hint' }, 'ROMとMMTで同じ名前の項目は、先に「ROM」「MMT」と言うと確実です。言わない場合は、5以下の数字をMMTとして扱います。'),
+            SR ? h('p', { class: 'hint' }, '「話して入力」の音声は、ブラウザの音声認識（GoogleやAppleのサーバー）で文字に変換されます。') : null),
+          h('div', { class: 'sheet-foot' }, h('button', { class: 'btn primary', type: 'button', onclick: apply }, '反映する'))));
+      $app.append(sheet);
+      repaint();
+    }
 
     shell({
       title: c.name,
@@ -978,17 +1316,20 @@
         h('details', { class: 'sec' }, h('summary', null, h('span', { class: 'sec-title' }, '総合所見・ひとこと')),
           h('div', { class: 'sec-body' },
             h('div', { class: 'item-label' }, '総合所見（記録用）'),
-            noteBox(G_NOTE, '全体の所見・方針など'),
+            gNote,
             h('div', { class: 'item-label' }, 'クライアントへのひとこと'),
             noteBox(G_CLIENT, 'クライアント向け文章の最後に入ります')))
       ],
-      bar: h('button', {
-        class: 'btn primary', type: 'button', onclick: async () => {
-          await save();
-          if (!hasAny(a)) return toast('まだ入力がありません');
-          go('result/' + a.id);
-        }
-      }, '結果を見る')
+      bar: [
+        h('button', { class: 'btn voice-btn', type: 'button', onclick: openVoice }, '🎤 音声'),
+        h('button', {
+          class: 'btn primary', type: 'button', onclick: async () => {
+            await save();
+            if (!hasAny(a)) return toast('まだ入力がありません');
+            go('result/' + a.id);
+          }
+        }, '結果を見る')
+      ]
     });
   }
 

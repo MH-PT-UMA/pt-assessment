@@ -40,13 +40,24 @@
     };
   }
 
+  // 音声入力での関節の呼び方（「股関節屈曲」「股屈曲」「股関節の屈曲」のどれでも通じるようにする）
+  var JOINT = {
+    '肩': ['肩', '肩関節'], '股': ['股', '股関節'], '膝': ['膝', '膝関節', 'ひざ'], '足': ['足', '足関節', '足首'],
+    '体幹': ['体幹'], '頸': ['頸', '頸部', '首'], '肩甲骨': ['肩甲骨']
+  };
+  function says(group, name) {
+    var out = [];
+    (JOINT[group] || [group]).forEach(function (j) { out.push(j + name, j + 'の' + name); });
+    return out;
+  }
+
   // ROM 項目。ref は参考可動域、ref の8割未満（または o.limit 未満）で「かたい傾向」と説明する
   function rom(group, name, id, plain, ref, ex, o) {
     o = o || {};
     var limit = o.limit != null ? o.limit : ref * 0.8;
     var text = function (s) { return s + plain + 'がややかたい傾向があります。'; };
     return {
-      id: id, group: group, chip: name, label: group + name, plain: plain,
+      id: id, group: group, chip: name, label: group + name, plain: plain, say: says(group, name),
       type: 'number', unit: '°', step: 5, init: ref, min: -30, max: 200, better: 'high',
       bilateral: !o.single, ex: ex,
       client: o.single
@@ -63,7 +74,7 @@
     var text = function (s) { return s + plain + 'の力がやや弱い傾向があります。'; };
     var weak = function (v) { return v <= 4; };
     return {
-      id: id, group: group, chip: name, label: group + name, plain: plain + 'の力',
+      id: id, group: group, chip: name, label: group + name, plain: plain + 'の力', say: says(group, name),
       type: 'scale', min: 0, max: 5, better: 'high', bilateral: !single, ex: ex,
       client: single ? function (v) { return weak(v) ? text('') : null; } : sided(weak, text)
     };
@@ -391,4 +402,78 @@
       }
     ]
   });
+
+  // ==================================================================
+  // 音声入力の語彙
+  //   sections … セクションの呼び名（「MMT」と言うと以降はMMTの項目として読む）
+  //   items    … 'セクションid.項目id': { say: 別の言い方, only: true で項目名そのものは使わない,
+  //              direct: {言葉: 値} その言葉だけで値まで決まるもの, opts: {選択肢の値: 別の言い方} }
+  // 項目名（label）と選択肢名は、書かなくても自動で使われる。
+  // ==================================================================
+  var VOICE_SECTIONS = {
+    sag: ['矢状面'], front: ['前額面'], pain: ['疼痛', '痛み'], rom: ['rom', '可動域', '関節可動域'],
+    mmt: ['mmt', '筋力'], flex: ['柔軟性'], balance: ['バランス'], bbs: ['bbs', 'バーグ'], bestest: ['bestest', 'ベスト']
+  };
+  var CURVE = { inc: ['増加', '強い'], flat: ['フラット', '減少'] };
+  var HIGH = { R: ['右が高い', '右高い', '右'], L: ['左が高い', '左高い', '左'] };
+  var VOICE_ITEMS = {
+    'sag.wnl': { say: ['偏位なし', '矢状面問題なし'] },
+    'sag.head_fwd': { say: ['頭部前方', 'フォワードヘッド'] },
+    'sag.round_sh': { say: ['巻肩', 'まき肩'] },
+    'sag.th_kyph': { say: ['胸椎'], opts: CURVE },
+    'sag.lx_lord': { say: ['腰椎'], opts: CURVE },
+    'sag.sway': { say: ['スウェーバック', 'スエイバック'] },
+    'sag.knee_hyper': { say: ['反張膝', '膝の過伸展'] },
+    'front.wnl': { say: ['左右差なし'] },
+    'front.shoulder': { say: ['肩高さ'], opts: HIGH },
+    'front.pelvis_h': { say: ['骨盤高さ'], opts: HIGH },
+    'front.trunk_shift': { say: ['体幹偏位', '体幹シフト'] },
+    'front.knee': { only: true, say: ['膝アライメント'],
+      direct: { 'o脚': 'varus', 'x脚': 'valgus', '膝内反': 'varus', '膝外反': 'valgus', '内反膝': 'varus', '外反膝': 'valgus' } },
+    'front.foot': { direct: { '扁平足': 'pron', '回内足': 'pron', 'ハイアーチ': 'sup', '回外足': 'sup' },
+      opts: { pron: ['回内', '扁平'], sup: ['回外', '甲高'] } },
+    'pain.nrs': { say: ['痛みの強さ', '疼痛スケール'] },
+    'pain.site': { opts: {
+      '頸部': ['首', '頸'], '肩甲帯': ['肩甲骨'], '上肢': ['腕'], '胸背部': ['背中', '背部'], '腰部': ['腰'],
+      '殿部': ['お尻', 'おしり'], '股関節': ['股'], '大腿': ['太もも', 'もも'], '膝': ['ひざ'],
+      '下腿': ['すね', 'ふくらはぎ'], '足部': ['足首', '足'] } },
+    'pain.side': { only: true, opts: { B: ['両方', '左右'], C: ['真ん中', '中央'] } },
+    'pain.timing': { opts: { '安静時': ['安静'], '動作時': ['動作', '動いた時'], '夜間': ['夜'], '起床時': ['起床', '朝'] } },
+    'flex.ffd': { say: ['指床間距離', '前屈'] },
+    'flex.slr': { say: ['下肢伸展挙上'] },
+    'flex.thomas': { say: ['トーマス'], opts: { neg: ['ネガティブ'], pos: ['ポジティブ'] } },
+    'flex.hbd': { say: ['踵殿間距離', '尻上がり'] },
+    'flex.hbb': { say: ['結帯'], opts: { butt: ['お尻'], th12: ['第12胸椎'], th7: ['th7', '第7胸椎'] } },
+    'balance.ols_open': { say: ['片脚立位開眼', '開眼片脚立位', '片脚立位', '開眼'] },
+    'balance.ols_closed': { say: ['片脚立位閉眼', '閉眼片脚立位', '閉眼'] },
+    'bestest.e06a': { say: ['6番リーチ', '座位リーチ'] },
+    'bestest.e06b': { say: ['6番垂直', '垂直性'] }
+  };
+  var domain = PTA.domains[PTA.domains.length - 1];
+  domain.sections.forEach(function (s) {
+    s.say = VOICE_SECTIONS[s.id] || [];
+    if (s.id === 'pain') s.voiceLoose = true; // 「NRS 4 腰 動作時」のように、項目名なしで選択肢を言える
+    s.items.forEach(function (i) {
+      var v = VOICE_ITEMS[s.id + '.' + i.id];
+      if (!v) return;
+      i.say = (i.say || []).concat(v.say || []);
+      if (v.only) i.sayOnly = true;
+      if (v.direct) i.direct = v.direct;
+      (i.options || []).forEach(function (o) { if (v.opts && v.opts[o.v]) o.say = v.opts[o.v]; });
+    });
+  });
+
+  // 聞き間違い・表記ゆれの直し（左を右に置き換える）。うまく入らない言葉があればここに足す
+  PTA.voiceFixes = (PTA.voiceFixes || []).concat([
+    ['外線', '外旋'], ['凱旋', '外旋'], ['内線', '内旋'], ['内戦', '内旋'], ['進展', '伸展'], ['親展', '伸展'],
+    ['回線', '回旋'], ['開戦', '回旋'], ['外点', '外転'], ['内点', '内転'], ['即屈', '側屈'], ['測屈', '側屈'],
+    ['低屈', '底屈'], ['廃屈', '背屈'], ['古関節', '股関節'], ['個関節', '股関節'], ['子関節', '股関節'], ['こ関節', '股関節'],
+    ['頚', '頸'], ['警部', '頸部'], ['臀', '殿'], ['後湾', '後弯'], ['前湾', '前弯'], ['後彎', '後弯'], ['前彎', '前弯'],
+    ['片足立ち', '片脚立位'], ['片脚立ち', '片脚立位'], ['片足立位', '片脚立位'], ['偏平', '扁平'],
+    ['エヌアールエス', 'nrs'], ['エスエルアール', 'slr'], ['エフエフディー', 'ffd'], ['エイチビーディー', 'hbd'],
+    ['エムエムティー', 'mmt'], ['アールオーエム', 'rom'], ['ビービーエス', 'bbs'], ['ベステスト', 'bestest'], ['ベストテスト', 'bestest'],
+    ['オー脚', 'o脚'], ['エックス脚', 'x脚'],
+    // 「腰の痛み」→「痛み 腰」の順に直す
+    [/(首|頸部|肩甲骨|肩甲帯|肩|腕|上肢|背中|背部|胸背部|腰部|腰|お尻|殿部|股関節|太もも|大腿|膝|ひざ|すね|ふくらはぎ|下腿|足首|足部|足)(の|に|が)?(痛み|疼痛)/g, '痛み$1']
+  ]);
 })();
